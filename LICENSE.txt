@@ -1,0 +1,12 @@
+Ping Express
+Copyright © 2026 Ping Express. All rights reserved.
+
+This game, including its code, station and timetable data, questions, texts,
+artwork and icons, is protected by copyright.
+
+You may play the game for personal use. You may not copy, modify,
+redistribute, republish, sell or upload it (in whole or in part) to any
+website, app store or other platform without prior written permission
+from the copyright holder.
+
+Map background based on Natural Earth data (public domain).
