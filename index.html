@@ -525,9 +525,10 @@ const CARDS = {
   express:  {name:"Express",       side:"any",  text:() => "Your next train leaves at once, no waiting for the timetable."},
   block:    {name:"Roadblock",     side:"hunt", text:() => `Close a station for ${G.BLOCK} min. The runner cannot arrive there.`},
   xping:    {name:"Extra ping",    side:"hunt", text:() => "Locate the runner right now. Every hunter sees it."},
+  vague:    {name:"Weak signal",   side:"run",  text:() => "The next ping only shows the last station you left, not where your train is right now."},
   delay:    {name:"Signal fault",  side:"hunt", text:() => `The runner loses ${G.STRIKE / 2} min wherever they are.`}
 };
-const DECK = ["strike","strike","decoy","decoy","silence","silence","freeride","freeride","express","express","express","block","block","block","xping","xping","delay","delay"];
+const DECK = ["strike","strike","decoy","decoy","vague","vague","silence","silence","freeride","freeride","express","express","express","block","block","block","xping","xping","delay","delay"];
 const SIDE = {run:"Runner card", hunt:"Hunter card", any:"Any role"};
 const PLAYERS = [
   {id:"you",   name:"You",   human:true, col:"var(--p0)", hex:"#7fd0ff", dark:"#0b6aa8"},
@@ -685,13 +686,21 @@ function tick() {
   if (R.t >= G.TLIMIT) endRound("timeout");
 }
 function doPing(extra, by) {
-  const rn = R.rn, real = onTrain(rn) ? rn.travel.from : rn.node;
+  const rn = R.rn, moving = onTrain(rn);
   if (!extra && R.silence) { R.silence = false; log("Ping failed: radio silence.", "s"); return; }
-  let node = real;
-  if (R.decoy) { R.decoy = false; node = rnd(ADJ[real]).to; }
-  R.prevPing = R.ping; R.ping = {node, moving:onTrain(rn), t:R.t};
+  let node = moving ? rn.travel.from : rn.node, pos = null;
+  if (R.decoy) { R.decoy = false; node = rnd(ADJ[node]).to; }
+  else if (moving && !R.vague) {
+    const f = Math.max(0, Math.min(1, (R.t - rn.travel.dep) / Math.max(1, rn.travel.arrive - rn.travel.dep)));
+    pos = {from:rn.travel.from, to:rn.travel.to, f, type:rn.travel.type};
+    node = f >= .5 ? rn.travel.to : rn.travel.from;
+  }
+  const vague = R.vague; R.vague = false;
+  R.prevPing = R.ping; R.ping = {node, moving, t:R.t, pos};
   if (R.forced !== "none" && humanActors().length) FXQ.add("ping");
-  log(`${extra ? "Extra ping by " + pname(by.p || by) : "Ping"}: runner seen at ${S[node].name}${R.ping.moving ? " (on a train)" : ""}.`, "h");
+  const what = pos ? `on the ${TNAME[pos.type]} from ${S[pos.from].name} to ${S[pos.to].name}`
+    : `seen at ${S[node].name}${moving ? (vague ? " (weak signal, now on a train)" : " (on a train)") : ""}`;
+  log(`${extra ? "Extra ping by " + pname(by.p || by) : "Ping"}: runner ${what}.`, "h");
 }
 function runnerBook(e) {
   const rn = R.rn, cost = rn.free ? 0 : price(e);
@@ -715,6 +724,7 @@ function canPlay(pid, k) {
   if (c.side === "hunt" && runner) return false;
   if (k === "strike") return R.hunters.some(h => h.frozen <= R.t);
   if (k === "decoy") return !R.decoy;
+  if (k === "vague") return !R.vague;
   if (k === "silence") return !R.silence;
   if (k === "freeride") return !R.rn.free;
   if (k === "express") return !actorOf(pid).express;
@@ -727,6 +737,7 @@ function playCard(pid, k, target) {
   const who = pname(PLAYERS.find(p => p.id === pid));
   if (k === "strike") { R.hunters.forEach(h => { h.frozen = Math.max(R.t, h.frozen) + G.STRIKE; if (h.travel) { if (h.travel.dep > R.t) h.travel.dep += G.STRIKE; h.travel.arrive += G.STRIKE; } });
     log(`${who} played Strike: all hunters stuck for ${G.STRIKE} min.`, "s"); }
+  if (k === "vague") { R.vague = true; if (!hideRun()) log(`${who} weakened the signal.`, "s"); }
   if (k === "decoy") { R.decoy = true; if (!hideRun()) log(`${who} laid a false trail.`, "s"); }
   if (k === "silence") { R.silence = true; if (!hideRun()) log(`${who} went into radio silence.`, "s"); }
   if (k === "freeride") { R.rn.free = true; if (!hideRun()) log(`${who}: next train is free.`, "s"); }
@@ -753,6 +764,7 @@ function runnerAI() {
   if (R.t >= G.HEAD && eta <= G.PING * 2.2 && has(pid, "decoy") && Math.random() < .6) { playCard(pid, "decoy"); return; }
   if (first && R.kp < cost && has(pid, "freeride")) { playCard(pid, "freeride"); return; }
   if (first && first.dep - R.t >= 10 && eta <= G.PING * 2 && has(pid, "express")) { playCard(pid, "express"); return; }
+  if (first && (R.kp >= cost || rn.free) && first.e.min >= 15 && R.t + first.e.min > G.HEAD && nextPingT() < first.dep + first.e.min && has(pid, "vague") && Math.random() < .6) { playCard(pid, "vague"); return; }
   if (first && (R.kp >= cost || rn.free)) { runnerBook(first.e); return; }
   botChallenge(P, first ? cost - R.kp : 10, eta);
 }
@@ -1008,7 +1020,12 @@ function renderMap() {
     const cls = canGo.has(l.k) ? "go" : l.p <= 1 ? "on" : l.p === 2 ? "t1" : "";
     h += `<text class="lbl ${cls}" x="${l.x}" y="${l.y}" font-size="${fsPx * u}" stroke-width="3.4" vector-effect="non-scaling-stroke">${esc(S[l.k].name)}</text>`;
   });
-  if (R.ping && human === "hunter") { const [px, py] = PX(R.ping.node);
+  if (R.ping && human === "hunter") {
+    const P = R.ping.pos;
+    let [px, py] = PX(R.ping.node);
+    if (P) { const [ax, ay] = PX(P.from), [bx, by] = PX(P.to); px = ax + (bx - ax) * P.f; py = ay + (by - ay) * P.f;
+      h += `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="var(--signal)" stroke-width="5" stroke-opacity=".35" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+        <circle cx="${px}" cy="${py}" r="${6 * u}" fill="var(--signal)" stroke="#fff" stroke-width="2" vector-effect="non-scaling-stroke"/>`; }
     h += `<circle class="pulse" cx="${px}" cy="${py}" r="${15 * u}" fill="none" stroke="var(--signal)" stroke-width="2.4" vector-effect="non-scaling-stroke"/>`; }
   R.hunters.forEach(hu => {
     const [hx, hy] = posOf(hu), mine = !isBot(hu), t = (mine ? 11 : 9) * u;
@@ -1093,7 +1110,7 @@ function renderDeck() {
     const p = R.ping, reach = reachSet(), sug = hunterChoice(me);
     h += `<div class="here"><div><div class="name">${esc(S[here].name)}</div><div class="lead">You hunt alone. ${esc(R.runnerP.name)} is heading for ${esc(S[R.goal].name)}.</div></div></div>
       <div class="stats">
-        <div class="stat s-hunt"><div class="k">Last ping</div><div class="v">${p ? esc(S[p.node].name) : "–"}</div><div class="s">${p ? clock(p.t) + (p.moving ? " · on a train" : "") : "none yet"}</div></div>
+        <div class="stat s-hunt"><div class="k">Last ping</div><div class="v" style="${p && p.pos ? "font-size:15px" : ""}">${p ? (p.pos ? esc(S[p.pos.from].name) + " → " + esc(S[p.pos.to].name) : esc(S[p.node].name)) : "–"}</div><div class="s">${p ? clock(p.t) + (p.pos ? " · on the train" : p.moving ? " · on a train, exact spot unknown" : "") : "none yet"}</div></div>
         <div class="stat s-zone"><div class="k">Could be at</div><div class="v r">${p ? reach.size : "–"}</div><div class="s">stations (red)</div></div>
         <div class="stat s-goal"><div class="k">Their target</div><div class="v">${dur(APSP[here][R.goal])}</div><div class="s">from you</div></div>
         <div class="stat s-kp"><div class="k">Your catches</div><div class="v a">${M.catches[ME().id]}</div><div class="s">this match</div></div></div>`;
@@ -1777,8 +1794,8 @@ function showIntro(step) {
       ${rule("Match", (PLAY2 ? esc(NAMES[0]) + " and " + esc(NAMES[1]) + " on one phone, plus two bots. When it's the other player's turn, the game asks you to pass the phone." : "You and three bots.") + " Everyone runs twice: 8 rounds. Round 1 starts at <b>" + esc(S[M.starts[0]].name) + "</b>, every later round where the last one ended.")}
       ${rule("Run", "Reach your own target. Trains, boats and buses run on a fixed timetable, so waiting counts. Tickets cost more the longer and faster the train.")}
       ${rule("Points", "Draw a challenge to earn KP: bronze +10, silver +20, gold +40. Every challenge takes " + CH_MIN + " min. You can veto a card, but then you are stuck: bronze 30 min, silver 45 min, gold 1 h. Failing costs the same. 15 kinds, from the stopwatch to the ticket machine.")}
-      ${rule("Hunt", "The other three each hunt alone, with their own token. They ride free, know your target and see your last station every " + G.PING + " min, starting after " + G.HEAD + " min.")}
-      ${rule("Cards", "Everyone has their own deck. You start with 3 cards and draw 1 at every ping. Runner cards: strike, false trail, radio silence, free ticket. Hunter cards: roadblock, extra ping, signal fault. Express works for both.")}
+      ${rule("Hunt", "The other three each hunt alone, with their own token. They ride free, know your target and see exactly where you are every " + G.PING + " min, starting after " + G.HEAD + " min.")}
+      ${rule("Cards", "Everyone has their own deck. You start with 3 cards and draw 1 at every ping. Runner cards: strike, false trail, radio silence, weak signal, free ticket. Hunter cards: roadblock, extra ping, signal fault. Express works for both.")}
       ${rule("Score", "Reaching your target wins the round. Otherwise the minutes spent in your own zone count. Catches break ties.")}
     </div>
     <h3 style="margin:0;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute)">Targets this match</h3><div class="goals">${goals}</div>
@@ -1834,7 +1851,7 @@ const TUT_STEPS = [
   {sel:"#hud", text:() => `<b>Welcome to Ping Express!</b> You are the runner. Reach <b>${esc(S[R.goal].name)}</b> before the hunters catch you. The clock shows game time.`},
   {sel:".stage", text:() => `This is the rail map. You are the <b>blue dot</b> in ${esc(S[R.rn.node].name)}. <b>Orange stations</b> are trains you can take right now. Pinch or use + and − to zoom.`},
   {sel:"#targets", text:() => `Everyone has their own target. The coloured zones show which target is nearest. If you get caught, your minutes inside your own zone still count.`},
-  {sel:".pingdial", text:() => `In a real match, three hunters wait ${G.HEAD} min. Then they see your station at every <b>ping</b> (every ${G.PING} min). In this practice round they stay put.`},
+  {sel:".pingdial", text:() => `In a real match, three hunters wait ${G.HEAD} min. Then they see exactly where you are at every <b>ping</b>, even on a train (every ${G.PING} min). In this practice round they stay put.`},
   {sel:".s-kp", text:() => `Tickets cost <b>KP</b>. Faster and longer trains cost more. You have ${R.kp} KP.`},
   {sel:"#bQuiz", wait:"challenge", text:() => `Earn more KP with <b>challenges</b>: pick bronze, silver or gold, then accept or veto the card. Each one takes ${CH_MIN} min. Tap <b>Draw a challenge</b> and try one.`},
   {sel:"#bCards", text:() => `You also hold <b>cards</b>: strikes, false trails, free tickets, roadblocks. Every player has their own deck and draws a card at every ping.`},
