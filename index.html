@@ -399,6 +399,44 @@ body.mapfs #map{height:100%!important;height:100dvh!important}
   .cards{grid-template-columns:1fr}
   .goals{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+
+/* overview v3 */
+.tgtptr{position:absolute;z-index:3;transform:translate(-50%,-50%);display:flex;align-items:center;gap:6px;padding:5px 10px 5px 7px;border-radius:999px;border:0;background:rgba(16,26,43,.88);color:#fff;font:600 11.5px var(--f-body);box-shadow:0 3px 10px rgba(0,0,0,.35);cursor:pointer;max-width:170px}
+.tgtptr i{font-style:normal;color:#ffd27a;font-size:13px;display:inline-block}
+.tgtptr span{display:flex;flex-direction:column;line-height:1.15;min-width:0;text-align:left}
+.tgtptr b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tgtptr small{color:#ffd27a;font:500 10px var(--f-mono)}
+.legend{display:flex;gap:10px;overflow-x:auto;scrollbar-width:none;padding:2px 2px 6px;width:100%;flex:0 0 100%;font-size:10.5px;color:var(--mute);white-space:nowrap}
+.legend::-webkit-scrollbar{display:none}
+.lg{display:inline-flex;align-items:center;gap:4px}
+.targets{flex-wrap:wrap}
+.hud .role{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hud .run{font-size:19px}
+.dep .time small{white-space:nowrap}
+@media (max-width:460px){
+  .stats{grid-template-columns:repeat(4,minmax(0,1fr));gap:5px}
+  .stat{padding:6px 7px;border-right:1px solid var(--rail)!important;border-bottom:1px solid var(--rail)!important}
+  .stat .k{font-size:9px;letter-spacing:.08em}
+  .stat .v{font-size:14.5px}
+  .stat .s{font-size:9.5px;white-space:normal;line-height:1.2;max-height:2.4em}
+  .here .name{font-size:26px}
+}
+
+/* leaderboard */
+.lbmaps{display:flex;flex-wrap:wrap;gap:6px}.lbmaps .pc{padding:6px 11px;flex:0 0 auto;min-height:0;height:auto;border-radius:99px}.lbmaps .pc b{font-size:12.5px}
+.sheet h3{margin:14px 0 6px;font-size:15px}
+tr.me td{color:#ffd27a}
+.scorebox{margin:12px 0;padding:12px 14px;border-radius:14px;background:linear-gradient(160deg,rgba(255,181,71,.22),rgba(255,111,168,.08));border:1px solid rgba(255,181,71,.45);text-align:center}
+.scorebox .k{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#ffcf85}
+.scorebox .pts{font:700 40px var(--f-mono);color:#ffd27a;line-height:1.1}
+.scorebox .s{font-size:12px;color:var(--mute)}
+.scorebox .pb{margin-top:6px;font-weight:700;color:#62dd9b}
+.lbsend{display:flex;flex-direction:column;gap:8px}
+.lbsend input{padding:11px 12px;border-radius:10px;border:1px solid var(--rail);background:var(--deck);color:var(--ink);font:500 15px var(--f-body)}
+
+/* delays */
+.dep .time .dl{font-style:normal;font-size:12px;font-weight:700;color:#ff6b6b;margin-left:4px}
+.dep .time small.cx{color:#ff6b6b;text-decoration:line-through;font-size:10px}
 </style>
 </head>
 <body>
@@ -420,6 +458,7 @@ body.mapfs #map{height:100%!important;height:100dvh!important}
     </div>
     <div id="banner"></div>
     <div class="maptip" id="maptip"></div>
+    <button class="tgtptr" id="tgtptr" hidden></button>
     <div class="selcard" id="selcard" hidden></div>
   </div>
   <div class="targets" id="targets"></div>
@@ -438,32 +477,39 @@ const GEO = {"countries":[{"n":"France","r":[[2522,51087,2536,51065,2558,51001,2
 
 /* ---------- network (rebuilt per map mode) ---------- */
 const FREQ = {FLY:180, HS:60, IC:30, IR:30, RE:60, S:30, MTN:60, BUS:60, BOAT:60};
-const RATE = {FLY:4.5, S:1.5, RE:2, IR:2.5, IC:3, MTN:3, HS:3.5, BUS:1.5, BOAT:2};
+const RATE = {FLY:4.5, S:1.5, RE:2, IR:2.5, IC:3.5, MTN:3, HS:5, BUS:1.5, BOAT:2};
 /* ticket price grows with travel time; fast trains cost more per minute */
-const price = e => Math.max(5, Math.round(RATE[e.type] * e.min * ((G && G.kpx) || 1) / 10 / 5) * 5);
+const BASEP = {HS:15, IC:5, IR:5, FLY:0, S:0, RE:0, MTN:5, BUS:0, BOAT:0};
+const price = e => Math.max(5, Math.round(((BASEP[e.type] || 0) + RATE[e.type] * e.min / 10) * ((G && G.kpx) || 1) / 5) * 5);
 const TNAME = {S:"suburban train", RE:"regional train", IR:"interregional train", IC:"intercity train", MTN:"mountain train", HS:"high-speed train", BUS:"bus", BOAT:"boat", FLY:"flight"};
 const MODES = {
-  ch: {label:"Switzerland", sub:"boats, mountain buses, mountain trains, border loops to Italy", HEAD:30, PING:22, TLIMIT:420, STRIKE:30, BLOCK:40, lo:100, hi:200, sep:95,
-       zmax:40, tiers:[1.8, 3], hour:8, focus:2.2, proj:{lon0:6.0, lat0:47.8, k:150, cos:.6845}, W:470, H:330, countries:["CH","IT"],
+  ch: {label:"Switzerland", sub:"boats, mountain buses, mountain trains, border loops to Italy", HEAD:16, PING:22, TLIMIT:420, STRIKE:30, BLOCK:40, lo:100, hi:200, sep:95,
+       zmax:40, tiers:[1.8, 3], hour:8, focus:2.2, proj:{lon0:6.0, lat0:47.8, k:150, cos:.6845}, W:470, H:330, countries:["CH","IT"], hide:["MIL","TOR","AOS","COM"],
        T1:["ZH","BN","BS","GE","LS","LU","SG","CH","LG","BE","OL","BI","WI","ZG","FR","SI","BRG","IO","SM","DA"]},
   eu: {label:"Europe", sub:"Switzerland, Germany, France, Italy, Austria, Great Britain, Benelux", HEAD:70, PING:60, TLIMIT:1080, STRIKE:60, BLOCK:90, lo:330, hi:620, sep:300,
        zmax:500, tiers:[4.2, 8.5], hour:6, focus:6, proj:{lon0:-6.8, lat0:58.2, k:27, cos:.656}, W:460, H:580, countries:null, kpx:.6,
        T1:["B","HH","MUC","K","F","STG","L","DD","N","H","HB","D","PAR","LYO","MRS","TLS","BOR","NTE","LIL","STB","NCE","MPL","REN_","ZH","GE","BS","BN","ASD","RTD","BXL","ANT","LUX","UTR","GN"]},
-  fr: {label:"France", sub:"high-speed lines, intercity and regional trains, a Pyrenees mountain railway", HEAD:55, PING:50, TLIMIT:900, STRIKE:45, BLOCK:60, lo:240, hi:480, sep:200,
+  ec: {label:"Europe without UK & Italy", sub:"Switzerland, Germany, France, Austria, Benelux", base:"eu", HEAD:50, PING:54, TLIMIT:1080, STRIKE:60, BLOCK:90, lo:280, hi:520, sep:250,
+       zmax:500, tiers:[3.8, 7.6], hour:6, focus:5.4, proj:{lon0:-5.47, lat0:55.43, k:30.5, cos:.66}, W:460, H:410, countries:["CH","DE","FR","AT","NL","BE","LU"], kpx:.6, hide:["LO","CS","MOD","MEN","MCO"],
+       T1:["B","HH","MUC","K","F","STG","L","DD","N","H","HB","D","PAR","LYO","MRS","TLS","BOR","NTE","LIL","STB","NCE","MPL","REN_","ZH","GE","BS","BN","ASD","RTD","BXL","ANT","LUX","UTR","GN"]},
+  dach: {label:"DACH", sub:"Germany, Austria and Switzerland", base:"eu", HEAD:36, PING:54, TLIMIT:900, STRIKE:45, BLOCK:60, lo:220, hi:440, sep:190,
+       zmax:250, tiers:[2.2, 4.4], hour:6, focus:3.2, proj:{lon0:5.6, lat0:55.1, k:61.9, cos:.66}, W:460, H:595, countries:["CH","DE","AT"], kpx:.6, hide:["LO","CS","POR","LLO"],
+       T1:["B","HH","MUC","K","F","STG","L","DD","N","H","HB","D","DO","KA","MA_","FR_","UL","A","R","WUE","EF_","KI","HRO","ZH","GE","BS","BN","LU","CH","LG","SZG","A_WIEN","A_LNZ","A_GRZ","A_IBK","A_KLU"]},
+  fr: {label:"France", sub:"high-speed lines, intercity and regional trains, a Pyrenees mountain railway", HEAD:60, PING:50, TLIMIT:900, STRIKE:45, BLOCK:60, lo:240, hi:480, sep:200,
        zmax:200, tiers:[2.6, 5], hour:6, focus:3.5, proj:{lon0:-4.9, lat0:51.4, k:50, cos:.682}, W:450, H:470, countries:["FR"],
        hide:["MEN","MCO","MOD","MOR","PON","STL","THI","WIS_","HAG"],
        T1:["PAR","LIL","LYO","MRS","TLS","BOR","NTE","REN_","STB","NCE","MPL","DIJ","MTZ","NCY","ROU","CAE","TOUR","CLF","GRE","RMS","AMI","ORL","LMG","PTR","LMN","AVG","PPN","BES_","BSN","MUL"]},
-  de: {label:"Germany", sub:"high-speed, intercity and regional trains from the North Sea to the Alps", HEAD:55, PING:50, TLIMIT:900, STRIKE:45, BLOCK:60, lo:240, hi:480, sep:200,
+  de: {label:"Germany", sub:"high-speed, intercity and regional trains from the North Sea to the Alps", HEAD:60, PING:54, TLIMIT:900, STRIKE:45, BLOCK:60, lo:240, hi:480, sep:200,
        zmax:200, tiers:[2.6, 5], hour:6, focus:3.5, proj:{lon0:5.0, lat0:55.2, k:70, cos:.629}, W:475, H:570, countries:["DE"],
        hide:["PA"],
        T1:["B","HH","MUC","K","F","STG","L","DD","N","H","HB","D","DO","E","KA","MA_","FR_","UL","A","R","WUE","EF_","HAL","MD","KI","HRO","MS","BI_","KS_","GOE","SB","TR","AC","C"]},
-  it: {label:"Italy", sub:"Frecce, Intercity, regional trains, the Messina strait ferry", HEAD:52, PING:42, TLIMIT:900, STRIKE:45, BLOCK:60, lo:240, hi:480, sep:200,
+  it: {label:"Italy", sub:"Frecce, Intercity, regional trains, the Messina strait ferry", HEAD:44, PING:42, TLIMIT:900, STRIKE:45, BLOCK:60, lo:240, hi:480, sep:200,
        zmax:200, tiers:[2.6, 5], hour:6, focus:3.5, proj:{lon0:6.3, lat0:47.3, k:46, cos:.75}, W:440, H:500, countries:["IT","ITW"], hide:["AOS"],
        T1:["MIL","TOR","I_GEN","I_VR","I_VEM","I_BO","I_FI","I_PI","I_ROMA","I_NA","I_SA","I_BA","I_AN","I_PE","I_TS","I_RC","I_PA","I_CT","I_BZ","I_TN","I_LE","I_PD"]},
-  at: {label:"Austria", sub:"Railjet, Arlberg, Tauern and Semmering, a corridor through Bavaria", HEAD:33, PING:30, TLIMIT:540, STRIKE:30, BLOCK:40, lo:110, hi:230, sep:100,
+  at: {label:"Austria", sub:"Railjet, Arlberg, Tauern and Semmering, a corridor through Bavaria", HEAD:20, PING:22, TLIMIT:540, STRIKE:30, BLOCK:40, lo:110, hi:230, sep:100,
        zmax:60, tiers:[1.8, 3.2], hour:7, focus:2.4, proj:{lon0:9.3, lat0:48.85, k:88, cos:.68}, W:460, H:220, countries:["AT"], extra:["MUC"],
        T1:["A_WIEN","A_LNZ","SZG","A_GRZ","A_IBK","A_KLU","A_VIL","A_STP","A_FK","A_BRZ","MUC"]},
-  gb: {label:"Great Britain", sub:"England, Scotland and Wales · intercity, regional, Highland lines", HEAD:30, PING:30, TLIMIT:840, STRIKE:40, BLOCK:55, lo:200, hi:420, sep:170,
+  gb: {label:"Great Britain", sub:"England, Scotland and Wales · intercity, regional, Highland lines", HEAD:24, PING:30, TLIMIT:840, STRIKE:40, BLOCK:55, lo:200, hi:420, sep:170,
        zmax:150, tiers:[2.4, 4.6], hour:6, focus:3.2, proj:{lon0:-5.8, lat0:57.9, k:70, cos:.6}, W:330, H:540, countries:["GB"],
        T1:["G_LDN","G_BHM","G_MAN","G_LIV","G_LDS","G_SHF","G_YRK","G_NCL","G_EDB","G_GLC","G_CDF","G_BRI","G_RDG","G_OXF","G_CBG","G_NRW","G_SOU","G_BTN","G_EXD","G_ABD","G_INV","G_PER","G_DND","G_CAR","G_PRE","G_CRE"]}
 };
@@ -482,24 +528,33 @@ function dijkstra(src) {
 }
 function buildNet(mode) {
   const D = DIFF(); G = Object.assign({}, MODES[mode], {mode}); G.PING = Math.round(MODES[mode].PING * D.ping); G.HEAD = MODES[mode].HEAD + D.head; W = G.W; H = G.H;
-  const use = MAP.stations.filter(s => ((G.extra || []).includes(s.id) || ((!G.countries || G.countries.includes(s.c)) && !(mode === "eu" && s.x) && !(mode === "ch" && s.id.startsWith("I_"))
-    && (!s.o || s.o === mode))) && !(G.hide || []).includes(s.id));
+  const bm = G.base || mode;
+  const use = MAP.stations.filter(s => ((G.extra || []).includes(s.id) || ((!G.countries || G.countries.includes(s.c)) && !(bm === "eu" && s.x) && !(mode === "ch" && s.id.startsWith("I_"))
+    && (!s.o || s.o === bm))) && !(G.hide || []).includes(s.id));
   S = {}; use.forEach(s => S[s.id] = s); IDS = Object.keys(S);
   ADJ = {}; IDS.forEach(k => ADJ[k] = []);
   NET = [];
   MAP.connections.forEach(c => {
-    if (!S[c.a] || !S[c.b] || (c.m && c.m !== mode)) return;
-    const f = c.f || FREQ[c.type], min = (mode === "eu" && c.min_eu) || c.min;
+    if (!S[c.a] || !S[c.b] || (c.m && c.m !== bm)) return;
+    const f = c.f || FREQ[c.type], min = (bm === "eu" && c.min_eu) || c.min;
     NET.push({a:c.a, b:c.b, min, type:c.type, via:c.via, ex:c.ex});
-    ADJ[c.a].push({to:c.b, min, type:c.type, f, ex:c.ex, off: hash(c.a + ">" + c.b) % f});
-    ADJ[c.b].push({to:c.a, min, type:c.type, f, ex:c.ex, off: hash(c.b + ">" + c.a) % f});
+    ADJ[c.a].push({fr:c.a, to:c.b, min, type:c.type, f, ex:c.ex, off: hash(c.a + ">" + c.b) % f});
+    ADJ[c.b].push({fr:c.b, to:c.a, min, type:c.type, f, ex:c.ex, off: hash(c.b + ">" + c.a) % f});
   });
   DEG = {}; IDS.forEach(k => DEG[k] = ADJ[k].length);
   T1 = new Set(G.T1);
   const P = G.proj; PX = id => { const s = S[id] || ALLS[id]; return [(s.lon - P.lon0) * P.cos * P.k, (P.lat0 - s.lat) * P.k]; };
   APSP = {}; PREV = {}; IDS.forEach(k => { const r = dijkstra(k); APSP[k] = r.d; PREV[k] = r.p; });
 }
-const nextDep = (e, t) => t + (((e.off - t) % e.f) + e.f) % e.f;
+/* disruptions: about 10% of departures run late, about 1.5% are cancelled. Fixed per round, so the board can show them. */
+const DELAYS = [2, 3, 3, 4, 5, 5, 6, 7, 8, 10, 12, 15];
+function trainState(e, dep) {
+  const h = hash((e.fr || "") + ">" + e.to + "@" + dep + "#" + ((R && R.seedD) || 0)), r = h % 1000;
+  return r < 15 ? {cancel:true, delay:0} : r < 115 ? {cancel:false, delay:DELAYS[Math.floor(h / 1000) % DELAYS.length]} : {cancel:false, delay:0};
+}
+const schedDep = (e, t) => t + (((e.off - t) % e.f) + e.f) % e.f;
+const nextDep = (e, t) => { let d = schedDep(e, t); for (let i = 0; i < 3 && trainState(e, d).cancel; i++) d += e.f; return d; };
+const delayOf = (e, dep) => trainState(e, dep).delay;
 const edge = (a, b) => ADJ[a].find(e => e.to === b);
 function staticPath(src, dst) { const out = [dst]; let v = dst; while (v !== src) { v = PREV[src][v]; if (v === undefined) return [src]; out.unshift(v); } return out; }
 /* timetable-aware earliest arrival; waiting for departures counts */
@@ -612,11 +667,13 @@ function pickSetup() {
       let ok = true;
       for (let i = 0; i < 4 && ok; i++) for (let j = i + 1; j < 4; j++) if (APSP[goals[i]][goals[j]] < sep) { ok = false; break; }
       if (!ok) continue;
-      const starts = shuffle(hubs.filter(s => !goals.includes(s) && goals.every(g => APSP[s][g] >= lo && APSP[s][g] <= hi)));
-      if (starts.length >= 2) return {goals, starts:[starts[0], starts[1]]};
+      const spread = s => { const d = goals.map(g => APSP[s][g]); return Math.max(...d) - Math.min(...d); };
+      const starts = hubs.filter(s => !goals.includes(s) && goals.every(g => APSP[s][g] >= lo && APSP[s][g] <= hi)).sort((a, b) => spread(a) - spread(b));
+      if (starts.length >= 2 && spread(starts[0]) <= G.lo * (.3 + relax * .12)) return {goals, starts:[starts[0], starts[1]]};
     }
   }
-  return {eu:{goals:["BES_", "HRO", "NCE", "PA"], starts:["F", "STB"]}, fr:{goals:["BES_", "STB", "NCE", "BIA"], starts:["PAR", "LMG"]},
+  return {eu:{goals:["BES_", "HRO", "NCE", "PA"], starts:["F", "STB"]}, ec:{goals:["BES_", "HRO", "NCE", "PA"], starts:["F", "STB"]},
+    dach:{goals:["KI", "GE", "A_WIEN", "AC"], starts:["N", "WUE"]}, fr:{goals:["BES_", "STB", "NCE", "BIA"], starts:["PAR", "LMG"]},
     de:{goals:["KI", "GR", "GAP", "AC"], starts:["EF_", "KS_"]}, it:{goals:["MIL", "I_PA", "I_LE", "I_TS"], starts:["I_ROMA", "I_BO"]},
     at:{goals:["A_BRZ", "A_WIEN", "A_KLU", "A_ZAS"], starts:["SZG", "A_LDK"]}, gb:{goals:["G_INV", "G_DVP", "G_SWA", "G_NRW"], starts:["G_BHM", "G_YRK"]}}[G.mode] || {goals:["GE", "SG", "LG", "BS"], starts:["LU", "OL"]};
 }
@@ -632,7 +689,7 @@ function clipPoly(poly, f) {
 function newMatch(mode) {
   buildNet(mode || (G && G.mode) || "ch");
   const {goals, starts} = pickSetup();
-  M = Object.assign({goals, starts, round:0, results:{}, catches:{}, lastEnd:null, mode:G.mode, decks:{}}, zonesFor(goals));
+  M = Object.assign({goals, starts, round:0, results:{}, catches:{}, lastEnd:null, mode:G.mode, decks:{}, diff:SET.diff}, zonesFor(goals));
   resetMatch();
 }
 function zonesFor(goals) {
@@ -660,13 +717,13 @@ function draw(pid, n) {
 }
 function roundInfo(i) {
   const goal = M.goals[i % 4];
-  let start = i === 0 || !M.lastEnd ? M.starts[0] : M.lastEnd;
+  let start = M.starts[0];
   if (start === goal) start = M.starts[0] !== goal ? M.starts[0] : M.starts[1];
   return {ri: i % 4, runner: PLAYERS[i % 4], run: Math.floor(i / 4) + 1, start, goal};
 }
 function startRound(forceRole) {
   const {ri, runner, run, start, goal} = roundInfo(M.round);
-  R = {t:0, ri, runnerP:runner, run, start, goal,
+  R = {t:0, seedD:Math.floor(Math.random() * 1e6), ri, runnerP:runner, run, start, goal,
     humanRole: forceRole || (runner.human ? "runner" : "hunter"), forced: forceRole || null, cur: null,
     rn: {node:start, travel:null, busy:0, express:false, free:false},
     hunters: PLAYERS.filter(p => p.id !== runner.id).map((p, i) => ({p, idx:i, node:start, travel:null, busy:0, frozen:G.HEAD, express:false, last:null})),
@@ -678,7 +735,7 @@ function startRound(forceRole) {
   log(`${runner.human && !PLAY2 ? "You start" : runner.name + " starts"} at ${S[start].name}. Target: ${S[goal].name}.`, "s");
   log(`Three hunters wait ${G.HEAD} min, then each hunts on their own.`, "h");
   hideOv();
-  if (typeof document !== "undefined") focusMe(G.focus);
+  if (typeof document !== "undefined") fitStart();
   advance();
 }
 function log(msg, cls) { R.log.unshift({t:R.t, msg, cls:cls || ""}); if (R.log.length > 90) R.log.pop(); }
@@ -752,17 +809,17 @@ function doPing(extra, by) {
 }
 function runnerBook(e) {
   const rn = R.rn, cost = rn.free ? 0 : price(e);
-  const dep = rn.express ? R.t : nextDep(e, R.t);
+  const sd = rn.express ? R.t : nextDep(e, R.t), dl = rn.express ? 0 : delayOf(e, sd), dep = sd + dl;
   R.kp -= cost; rn.free = false; rn.express = false;
-  rn.travel = {from:rn.node, to:e.to, dep, arrive:dep + e.min, type:e.type};
-  if (!hideRun()) log(`${pname(R.runnerP)} took the ${clock(dep)} ${TNAME[e.type]} to ${S[e.to].name} (${cost ? "−" + cost + " KP" : "free"}).`, "r");
+  rn.travel = {from:rn.node, to:e.to, dep, arrive:dep + e.min, type:e.type, late:dl};
+  if (!hideRun()) log(`${pname(R.runnerP)} took the ${clock(sd)} ${TNAME[e.type]} to ${S[e.to].name}${dl ? ` (${dl} min late)` : ""} (${cost ? "−" + cost + " KP" : "free"}).`, "r");
 }
 function hunterBook(h, e) {
   const from = Math.max(R.t, h.frozen);
-  const dep = h.express ? from : nextDep(e, from);
+  const sd = h.express ? from : nextDep(e, from), dl = h.express ? 0 : delayOf(e, sd), dep = sd + dl;
   h.express = false;
-  h.travel = {from:h.node, to:e.to, dep, arrive:dep + e.min, type:e.type};
-  log(`${pname(h.p)} (hunter) takes the ${clock(dep)} ${TNAME[e.type]} to ${S[e.to].name}.`, "h");
+  h.travel = {from:h.node, to:e.to, dep, arrive:dep + e.min, type:e.type, late:dl};
+  log(`${pname(h.p)} (hunter) takes the ${clock(sd)} ${TNAME[e.type]} to ${S[e.to].name}${dl ? ` (${dl} min late)` : ""}.`, "h");
 }
 function actorOf(pid) { return pid === R.runnerP.id ? R.rn : R.hunters.find(h => h.p.id === pid); }
 function canPlay(pid, k) {
@@ -891,6 +948,12 @@ function svgSize() { const r = $("map").getBoundingClientRect(); return {w: r.wi
 function vb() { const {w, h} = svgSize(); const vw = W / V.z, vh = vw * h / w; return {x: V.cx - vw / 2, y: V.cy - vh / 2, w: vw, h: vh, upp: vw / w}; }
 function clampView() { V.z = Math.min(G.zmax, Math.max(.6, V.z)); V.cx = Math.min(W, Math.max(0, V.cx)); V.cy = Math.min(H, Math.max(0, V.cy)); }
 function myActor() { return R.humanRole === "hunter" ? myHunter() : R.rn; }
+function fitStart() {
+  const ids = [myActor().node, R.goal].filter(k => S[k]), P = ids.map(PX), xs = P.map(p => p[0]), ys = P.map(p => p[1]);
+  const {w, h} = svgSize(), sx = Math.max(...xs) - Math.min(...xs) + 1e-3, sy = Math.max(...ys) - Math.min(...ys) + 1e-3;
+  V.cx = (Math.max(...xs) + Math.min(...xs)) / 2; V.cy = (Math.max(...ys) + Math.min(...ys)) / 2 - 8 * W / (G.focus * w);
+  V.z = Math.min(G.focus, .6 * W / sx, .62 * W * h / (w * sy)); V.cx += 24 * (W / V.z) / w; clampView();
+}
 function focusMe(z) { const [x, y] = posOf(myActor()); V.cx = x; V.cy = y; if (z) V.z = z; clampView(); }
 function setViewBox() { const b = vb(); $("map").setAttribute("viewBox", `${b.x} ${b.y} ${b.w} ${b.h}`); }
 function scheduleRender() { if (RAF) return; RAF = requestAnimationFrame(() => { RAF = 0; renderMap(); }); }
@@ -1117,7 +1180,29 @@ function renderMap() {
   if (human !== "hunter" || R.status !== "play") { const [rx, ry] = posOf(R.rn);
     h += `<circle class="pulse" cx="${rx}" cy="${ry}" r="${12 * u}" fill="none" stroke="${R.runnerP.dark}" stroke-width="2" vector-effect="non-scaling-stroke"/>
       <circle cx="${rx}" cy="${ry}" r="${7 * u}" fill="${R.runnerP.hex}" stroke="#202124" stroke-width="2.2" vector-effect="non-scaling-stroke"/>`; }
+  /* target flag + off-screen pointer */
+  const tgt = human === "hunter" ? (R.ping ? R.ping.node : null) : R.goal;
+  M.goals.forEach((g, i) => { const [gx, gy] = PX(g), f = i === R.ri ? 1 : .7;
+    h += `<g style="pointer-events:none"><line x1="${gx}" y1="${gy - 8 * u}" x2="${gx}" y2="${gy - 30 * f * u}" stroke="#202124" stroke-width="${i === R.ri ? 2 : 1.5}" vector-effect="non-scaling-stroke"/>
+      <path d="M${gx} ${gy - 30 * f * u} L${gx + 15 * f * u} ${gy - 25 * f * u} L${gx} ${gy - 20 * f * u} Z" fill="${PLAYERS[i].hex}" stroke="#202124" stroke-width="1.3" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></g>`; });
   $("dyn").innerHTML = h;
+  const ptr = $("tgtptr");
+  if (ptr) {
+    let show = false;
+    if (tgt && R.status === "play") {
+      const [gx, gy] = PX(tgt), sx = (gx - b.x) / u, sy = (gy - b.y) / u, H2 = b.h / u, m = 26;
+      if (sx < m || sy < m || sx > w - m || sy > H2 - m) {
+        show = true;
+        const cx = w / 2, cy = H2 / 2, dx = sx - cx, dy = sy - cy, k = Math.min((cx - m) / Math.abs(dx || 1e-6), (cy - m) / Math.abs(dy || 1e-6));
+        const px = cx + dx * k, py = cy + dy * k, ang = Math.atan2(dy, dx) * 180 / Math.PI;
+        const eta = human === "hunter" ? "last ping" : (() => { const a = myPlan().arr[tgt]; return a < Infinity ? "arr " + clock(a) : "target"; })();
+        ptr.innerHTML = `<i style="transform:rotate(${ang}deg)">➤</i><span><b>${esc(S[tgt].name)}</b><small>${eta}</small></span>`;
+        ptr.style.left = Math.max(70, Math.min(w - 70, px)) + "px"; ptr.style.top = Math.max(24, Math.min(H2 - 24, py)) + "px";
+        ptr.onclick = () => { const [x, y] = PX(tgt); V.cx = x; V.cy = y; clampView(); setViewBox(); renderMap(); };
+      }
+    }
+    ptr.hidden = !show;
+  }
   $("banner").innerHTML = UI.mode === "block" ? `<div class="banner"><span>Tap a station to close it for ${G.BLOCK} min</span><button id="bnX">Cancel</button></div>` : "";
   const bx = $("bnX"); if (bx) bx.onclick = () => { UI.mode = null; renderMap(); };
   renderSelCard();
@@ -1134,7 +1219,7 @@ function render() {
 function renderHud() {
   const rp = R.runnerP, total = R.t < G.HEAD ? G.HEAD : G.PING, left = nextPingT() - R.t, frac = Math.max(0, Math.min(1, left / total));
   const hot = R.t >= G.HEAD && left <= 5, C = 2 * Math.PI * 19;
-  $("hud").innerHTML = `<div class="who"><div class="role">Round ${M.round + 1}/8 · ${PLAY2 ? `<b style="color:${ME().hex}">${esc(ME().name)}</b> is` : "you are"} ${R.humanRole === "runner" ? "the runner" : "a hunter"}</div>
+  $("hud").innerHTML = `<div class="who"><div class="role">Round ${M.round + 1}/8 · ${PLAY2 ? `<b style="color:${ME().hex}">${esc(ME().name)}</b> · ` : ""}${R.humanRole === "runner" ? "Runner" : "Hunter"}</div>
       <div class="run"><span style="color:${rp.col}">${esc(pname(rp))}</span> → ${esc(S[R.goal].name)}</div></div>
     <div class="clock">${clock(R.t)}</div>
     <div class="pingdial" title="${R.t < G.HEAD ? "Hunt starts" : "Next ping"} in ${left} min">
@@ -1143,8 +1228,15 @@ function renderHud() {
         stroke-dasharray="${C * frac} ${C}" transform="rotate(-90 23 23)"/></svg>
       <b style="color:${hot ? "var(--signal)" : "var(--ink)"}">${left}</b><small>${R.t < G.HEAD ? "start" : "ping"}</small></div>`;
 }
+const LEGEND = () => {
+  const ln = (t, label) => { const [c, w, d] = EDGE_STYLE[t]; return `<span class="lg"><svg width="22" height="8"><line x1="1" y1="4" x2="21" y2="4" stroke="${c}" stroke-width="${w + .6}" stroke-linecap="round" ${d ? `stroke-dasharray="${d}"` : ""}/></svg>${label}</span>`; };
+  return `<div class="legend">${ln("HS", "High-speed")}${ln("IC", "Intercity")}${ln("RE", "Regional")}${ln("S", "S-Bahn")}${ln("BUS", "Bus")}${ln("FLY", "Flight")}
+    <span class="lg"><svg width="12" height="12"><circle cx="6" cy="6" r="4.5" fill="var(--l-route)" stroke="#8a4b00" stroke-width="1.5"/></svg>Take now</span>
+    <span class="lg"><svg width="12" height="12"><rect x="2.5" y="2.5" width="7" height="7" fill="#ffd27a" stroke="#202124" stroke-width="1.4" transform="rotate(45 6 6)"/></svg>Target</span>
+    <span class="lg"><svg width="12" height="12"><path d="M6 1 L11 10 L1 10 Z" fill="#c9a6ff" stroke="var(--signal)" stroke-width="1.5"/></svg>Hunter</span></div>`;
+};
 function renderTargets() {
-  $("targets").innerHTML = PLAYERS.map((p, i) => `<span class="tchip ${i === R.ri ? "me" : ""}" style="${i === R.ri ? "color:" + p.hex : ""}"><i style="background:${p.col}"></i>${esc(p.name)}<b>${esc(S[M.goals[i]].name)}</b></span>`).join("");
+  $("targets").innerHTML = LEGEND() + PLAYERS.map((p, i) => `<span class="tchip ${i === R.ri ? "me" : ""}" style="${i === R.ri ? "color:" + p.hex : ""}"><i style="background:${p.col}"></i>${esc(p.name)}<b>${esc(S[M.goals[i]].name)}</b></span>`).join("");
 }
 function tapStation(id) {
   if (!R || R.status !== "play" || !humanFree()) return;
@@ -1171,7 +1263,8 @@ function renderSelCard() {
   if (free && first) {
     const e = edge(here, first.to), dep = (runner && R.rn.express) || (!runner && me.express) ? Math.max(R.t, runner ? R.t : me.frozen) : first.dep;
     const cost = runner ? (R.rn.free ? 0 : price(e)) : 0, ok = !runner || ((R.kp >= cost) && !(R.blocks[first.to] > dep + e.min));
-    act = `<button class="big primary" id="scGo" ${ok ? "" : "disabled"}><b>${(() => { const w = e.type === "FLY" ? "flight" : e.type === "BUS" ? "bus" : e.type === "BOAT" ? "boat" : "train"; return Lg.length === 1 ? "Take this " + w : "Take the first " + w; })()}</b><small>${clock(dep)} ${e.type} to ${esc(S[first.to].name)}${runner ? ` · ${cost ? cost + " KP" : "free"}` : ""}</small></button>`;
+    const late = (runner && R.rn.express) || (!runner && me.express) ? 0 : delayOf(e, dep);
+    act = `<button class="big primary" id="scGo" ${ok ? "" : "disabled"}><b>${(() => { const w = e.type === "FLY" ? "flight" : e.type === "BUS" ? "bus" : e.type === "BOAT" ? "boat" : "train"; return Lg.length === 1 ? "Take this " + w : "Take the first " + w; })()}</b><small>${clock(dep)}${late ? ` (+${late} late)` : ""} ${e.type} to ${esc(S[first.to].name)}${runner ? ` · ${cost ? cost + " KP" : "free"}` : ""}</small></button>`;
   }
   el.innerHTML = `<div class="sc-head"><div><div class="sc-name">${esc(S[k].name)}</div><div class="sc-tags">${tags.join("")}</div></div>
       <button class="sc-x" id="scX" aria-label="Close">✕</button></div>
@@ -1190,9 +1283,10 @@ function renderSelCard() {
 
 /* ---------- deck (bottom sheet) ---------- */
 function depRow(e, opts) {
-  const dep = opts.now ? Math.max(R.t, opts.from || R.t) : nextDep(e, opts.from || R.t), wait = dep - R.t, arr = dep + e.min;
-  return `<button class="dep ${opts.best ? "best" : ""}" data-to="${e.to}" ${opts.enabled ? "" : "disabled"}>
-    <div class="time">${clock(dep)}<small>${wait <= 0 ? "now" : "in " + wait + " min"}</small></div>
+  const from = opts.from || R.t, sd = opts.now ? Math.max(R.t, from) : nextDep(e, from), dl = opts.now ? 0 : delayOf(e, sd), dep = sd + dl, wait = dep - R.t, arr = dep + e.min;
+  const cx = !opts.now && schedDep(e, from) !== sd ? schedDep(e, from) : null;
+  return `<button class="dep ${opts.best ? "best" : ""}${dl ? " late" : ""}" data-to="${e.to}" ${opts.enabled ? "" : "disabled"}>
+    <div class="time">${clock(sd)}${dl ? `<i class="dl">+${dl}</i>` : ""}<small>${wait <= 0 ? "now" : "in " + wait + " min"}</small>${cx !== null ? `<small class="cx">${clock(cx)} cancelled</small>` : ""}</div>
     <div class="dest"><b><span class="ty ${e.type}">${e.type}</span>${esc(S[e.to].name)}${e.ex ? `<span class="nonstop">non-stop</span>` : ""}</b><span>${opts.sub}</span></div>
     <div class="cost">${opts.cost}<small>arr ${clock(arr)}</small></div></button>`;
 }
@@ -1217,9 +1311,9 @@ function renderDeck() {
     h += `<div class="here"><div><div class="name">${esc(S[here].name)}</div><div class="lead">${inZone ? "Inside your zone" : "Outside your zone"} · target ${esc(S[R.goal].name)}</div></div></div>
       <div class="stats">
         <div class="stat s-kp"><div class="k">Points</div><div class="v a">${R.kp} KP</div><div class="s">${R.rn.free ? "next train free" : R.rn.express ? "express ready" : "cheapest train " + Math.min(...ADJ[here].map(price))}</div></div>
-        <div class="stat s-goal"><div class="k">Target</div><div class="v">${clock(pl.arr[R.goal])}</div><div class="s">earliest arrival</div></div>
+        <div class="stat s-goal"><div class="k">Arrival</div><div class="v">${clock(pl.arr[R.goal])}</div><div class="s">at the earliest</div></div>
         <div class="stat s-zone"><div class="k">Own zone</div><div class="v ${inZone ? "g" : ""}">${R.own} min</div><div class="s">counts if caught</div></div>
-        <div class="stat s-hunt"><div class="k">Nearest hunter</div>${hunt}</div></div>
+        <div class="stat s-hunt"><div class="k">Hunter</div>${hunt}</div></div>
       <div class="actions"><button class="big primary" id="bQuiz"><b>Draw a challenge</b><small>${CH_MIN} min · Bronze +10 · Silver +20 · Gold +40 KP</small></button>
       <button class="big" id="bCards"><b>Your cards (${mine.hand.length})</b><small>${mine.hand.filter(k => canPlay(ME().id, k)).length} playable now</small></button></div>`;
   } else {
@@ -1227,9 +1321,9 @@ function renderDeck() {
     h += `<div class="here"><div><div class="name">${esc(S[here].name)}</div><div class="lead">You hunt alone. ${esc(R.runnerP.name)} is heading for ${esc(S[R.goal].name)}.</div></div></div>
       <div class="stats">
         <div class="stat s-hunt"><div class="k">Last ping</div><div class="v" style="${p && p.pos ? "font-size:15px" : ""}">${p ? (p.pos ? esc(S[p.pos.from].name) + " → " + esc(S[p.pos.to].name) : esc(S[p.node].name)) : "–"}</div><div class="s">${p ? clock(p.t) + (p.pos ? " · on the train" : p.moving ? " · on a train, exact spot unknown" : "") : "none yet"}</div></div>
-        <div class="stat s-zone"><div class="k">Could be at</div><div class="v r">${p ? reach.size : "–"}</div><div class="s">stations (red)</div></div>
-        <div class="stat s-goal"><div class="k">Their target</div><div class="v">${dur(APSP[here][R.goal])}</div><div class="s">from you</div></div>
-        <div class="stat s-kp"><div class="k">Your catches</div><div class="v a">${M.catches[ME().id]}</div><div class="s">this match</div></div></div>`;
+        <div class="stat s-zone"><div class="k">Possible</div><div class="v r">${p ? reach.size : "–"}</div><div class="s">stations (red)</div></div>
+        <div class="stat s-goal"><div class="k">To target</div><div class="v">${dur(APSP[here][R.goal])}</div><div class="s">from you</div></div>
+        <div class="stat s-kp"><div class="k">Catches</div><div class="v a">${M.catches[ME().id]}</div><div class="s">this match</div></div></div>`;
     if (sug.type === "go") h += `<p class="hint">Tip: take the ${clock(nextDep(sug.e, Math.max(R.t, me.frozen)))} to <b>${esc(S[sug.e.to].name)}</b> and wait at ${esc(S[sug.target].name)}. The other hunters chase on their own.</p>`;
     else if (p) h += `<p class="hint">Tip: stay. The runner's fastest route passes <b>${esc(S[here].name)}</b>.</p>`;
     h += `<div class="actions"><button class="big" id="bWait"><b>Wait 5 min</b><small>Hold ${esc(S[here].name)}</small></button>
@@ -1554,7 +1648,8 @@ const FAIL_LINES = ["Due to a disruption in your head, your onward journey is de
 let CH = null;
 
 function challengeTypes() { return Object.keys(CHALL); }
-function pool(list) { return list.filter(x => G.mode === "eu" || x.r === G.mode); }
+const POOLR = {ec:["ch","de","fr","at","eu"], dach:["ch","de","at"]};
+function pool(list) { return list.filter(x => G.mode === "eu" || x.r === G.mode || (POOLR[G.mode] || []).includes(x.r)); }
 function openChallenge() {
   CH = {tier:null, type:null, double:false};
   showOv(`<div class="tag">Challenge · takes ${CH_MIN} min</div><h2>Pick your level</h2>
@@ -1632,7 +1727,7 @@ const GAMES = {
   },
   pin(tier, done) {
     const cands = IDS.filter(k => tier === "bronze" ? T1.has(k) : tier === "silver" ? DEG[k] >= 3 : true);
-    const target = rnd(cands), lim = (G.mode === "eu" ? {bronze:150, silver:90, gold:45} : G.mode === "ch" ? {bronze:40, silver:25, gold:12} : {bronze:100, silver:60, gold:30})[tier];
+    const target = rnd(cands), lim = (G.mode === "eu" || G.mode === "ec" ? {bronze:150, silver:90, gold:45} : G.mode === "ch" ? {bronze:40, silver:25, gold:12} : {bronze:100, silver:60, gold:30})[tier];
     showOv(`<div class="tag">${TIERS[tier].name} · Pin drop · within ${lim} km</div><h2>Where is ${esc(S[target].name)}?</h2>
       <svg id="pinmap" class="pinmap" viewBox="0 0 ${W} ${H}">${BASE_STR || ""}</svg><p style="color:var(--mute);font-size:13px">Tap once on the map.</p>`);
     const svg = $("pinmap"); let used = false;
@@ -1816,7 +1911,7 @@ const GAMES = {
     (SQ[here] || []).forEach(q => list.push({q:`${S[here].name}: ${q.q}`, a:q.a, here:1}));
     shuffle(IDS.filter(k => k !== here && SQ[k])).slice(0, 12).forEach(k => SQ[k].forEach(q => list.push({q:`${S[k].name}: ${q.q}`, a:q.a})));
     pool(LQ).forEach(q => list.push({q:q.q, a:q.a}));
-    if (G.mode === "eu") GQ.forEach(q => list.push({q:q.q, a:q.a}));
+    if (G.mode === "eu" || G.mode === "ec" || G.mode === "dach") GQ.forEach(q => list.push({q:q.q, a:q.a}));
     const mine = list.filter(x => x.here), rest = shuffle(list.filter(x => !x.here));
     multiChoice(tier, "Local knowledge", shuffle(mine).concat(rest), done);
   },
@@ -1943,28 +2038,102 @@ function showFinal() {
   const w = ranked()[0], wp = PLAYERS.find(p => p.id === w.id);
   showOv(`<div class="tag">Final standings</div><h2>${wp.human && !PLAY2 ? "You win the match!" : esc(wp.name) + " wins the match!"}</h2>
     <p style="color:var(--mute)">Escapes count first, then the faster escape. Without an escape, minutes in your own zone decide. Catches break ties.</p>
-    ${standingsTable()}<button class="big primary" id="again"><b>New match</b><small>Pick a map, new targets, fresh decks</small></button>`);
+    ${standingsTable()}${finalScoreBlock()}<button class="big primary" id="again"><b>New match</b><small>Pick a map, new targets, fresh decks</small></button>`);
   $("again").onclick = () => showIntro();
+  wireFinalScore();
+}
+
+/* ---------- leaderboard ---------- */
+/* World leaderboard: fill in the Supabase project URL and the public "anon" key to switch it on. */
+const LB_URL = "", LB_KEY = "";
+const LB_ON = () => !!(LB_URL && LB_KEY) && typeof fetch !== "undefined";
+const LB_MULT = {easy:.7, normal:1, hard:1.3};
+function matchPoints(id) {
+  const sc = score(id), arr = M.results[id].filter(r => r.kind === "arrived");
+  const speed = arr.reduce((a, r) => a + Math.round(Math.max(0, G.TLIMIT - r.t) / G.TLIMIT * 500), 0);
+  const won = ranked()[0].id === id ? 300 : 0;
+  const parts = {escapes:sc.arrivals * 1000, speed, zone:sc.own * 2, catches:sc.catches * 200, win:won};
+  const raw = Object.values(parts).reduce((a, b) => a + b, 0), mult = LB_MULT[M.diff || "normal"] || 1;
+  return {total:Math.round(raw * mult), parts, mult, escapes:sc.arrivals, catches:sc.catches};
+}
+const LOCAL_KEY = "pe-records-v1";
+function localRecords() { return load(LOCAL_KEY) || {}; }
+function addLocalRecord(mode, entry) {
+  const all = localRecords(), list = (all[mode] || []).concat([entry]).sort((a, b) => b.score - a.score).slice(0, 10);
+  all[mode] = list; store(LOCAL_KEY, all); return list.indexOf(entry) === 0 && list.length > 0;
+}
+async function lbSubmit(entry) {
+  const r = await fetch(LB_URL + "/rest/v1/scores", {method:"POST", headers:{apikey:LB_KEY, Authorization:"Bearer " + LB_KEY, "Content-Type":"application/json", Prefer:"return=minimal"}, body:JSON.stringify(entry)});
+  if (!r.ok) throw new Error("submit " + r.status);
+}
+async function lbTop(mode) {
+  const r = await fetch(LB_URL + `/rest/v1/scores?select=name,score,escapes,catches,diff,created_at&map=eq.${encodeURIComponent(mode)}&order=score.desc&limit=20`, {headers:{apikey:LB_KEY, Authorization:"Bearer " + LB_KEY}});
+  if (!r.ok) throw new Error("load " + r.status);
+  return r.json();
+}
+const lbRow = (e, i, me) => `<tr${me ? ' class="me"' : ""}><td>${i + 1}</td><td style="font-weight:600">${esc(e.name || "You")}</td><td class="num">${e.score}</td><td class="num">${e.escapes}</td><td class="num">${(DIFFS[e.diff] || DIFFS.normal).name}</td></tr>`;
+const lbTable = (rows, mine) => rows.length ? `<div class="tablewrap"><table><thead><tr><th>#</th><th>Name</th><th class="num">Points</th><th class="num">Escapes</th><th class="num">Level</th></tr></thead><tbody>${rows.map((e, i) => lbRow(e, i, mine && mine(e))).join("")}</tbody></table></div>` : `<p class="hint">No scores yet. Play a full match to set one.</p>`;
+function showLeaderboard(mode, back) {
+  mode = mode || load("pe-lb-map") || "ch"; store("pe-lb-map", mode);
+  const loc = (localRecords()[mode] || []);
+  showOv(`<div class="tag">Leaderboard</div><h2>Best matches</h2>
+    <div class="lbmaps">${Object.entries(MODES).map(([k, m]) => `<button class="pc ${k === mode ? "on" : ""}" data-lb="${k}"><b>${esc(m.label)}</b></button>`).join("")}</div>
+    ${LB_ON() ? `<h3>World</h3><div id="lbWorld"><p class="hint">Loading…</p></div>` : ""}
+    <h3>Your records on this phone</h3>${lbTable(loc.map(e => Object.assign({name:"You"}, e)))}
+    <p class="hint">Points: 1000 per escape, up to 500 for a fast escape, 200 per catch, 2 per minute in your own zone, 300 for winning the match. Easy ×0.7, Hard ×1.3. Single-player matches only.</p>
+    <button class="big" id="lbBack"><b>Back</b></button>`);
+  $("sheet").querySelectorAll("[data-lb]").forEach(b => b.onclick = () => showLeaderboard(b.dataset.lb, back));
+  $("lbBack").onclick = () => (back || showIntro)();
+  if (LB_ON()) lbTop(mode).then(rows => { const el = $("lbWorld"); if (el) el.innerHTML = lbTable(rows); })
+    .catch(() => { const el = $("lbWorld"); if (el) el.innerHTML = `<p class="hint">The world leaderboard can't be reached right now.</p>`; });
+}
+function finalScoreBlock() {
+  if (PLAY2) return "";
+  const me = PLAYERS.find(p => p.human), mp = matchPoints(me.id);
+  const entry = {score:mp.total, escapes:mp.escapes, catches:mp.catches, diff:M.diff || "normal", date:new Date().toISOString().slice(0, 10)};
+  if (!M.recorded) { M.best = addLocalRecord(M.mode, entry); M.recorded = true; }
+  const p = mp.parts, nm = load("pe-name") || "";
+  return `<div class="scorebox"><div class="k">Your points</div><div class="pts">${mp.total}</div>
+      <div class="s">${p.escapes ? `Escapes ${p.escapes} · ` : ""}${p.speed ? `Speed ${p.speed} · ` : ""}${p.catches ? `Catches ${p.catches} · ` : ""}${p.zone ? `Zone ${p.zone} · ` : ""}${p.win ? `Win ${p.win} · ` : ""}${mp.mult !== 1 ? `×${mp.mult} ${DIFFS[M.diff].name}` : "Normal"}</div>
+      ${M.best ? `<div class="pb">New personal best on ${esc(G.label)}!</div>` : ""}</div>
+    ${LB_ON() ? `<div class="lbsend"><input id="lbName" maxlength="14" placeholder="Your name" value="${esc(nm)}" aria-label="Name for the world leaderboard"><button class="big primary" id="lbGo"><b>Send to world leaderboard</b><small>Your name and points become public</small></button></div><p class="hint" id="lbMsg"></p>` : ""}
+    <button class="big" id="lbShow"><b>Leaderboard</b><small>${esc(G.label)}</small></button>`;
+}
+function wireFinalScore() {
+  const show = $("lbShow"); if (show) show.onclick = () => showLeaderboard(M.mode, showFinal);
+  const go = $("lbGo"); if (!go) return;
+  if (M.sent) { go.disabled = true; $("lbMsg").textContent = "Sent. Thanks!"; }
+  go.onclick = () => {
+    const name = ($("lbName").value || "").replace(/[^\p{L}\p{N} ._-]/gu, "").trim().slice(0, 14);
+    if (name.length < 2) { $("lbMsg").textContent = "Please enter a name (at least 2 letters)."; return; }
+    store("pe-name", name); go.disabled = true; $("lbMsg").textContent = "Sending…";
+    const me = PLAYERS.find(p => p.human), mp = matchPoints(me.id);
+    lbSubmit({name, map:M.mode, score:mp.total, escapes:mp.escapes, catches:mp.catches, diff:M.diff || "normal"})
+      .then(() => { M.sent = true; $("lbMsg").textContent = "Sent. Thanks!"; })
+      .catch(() => { go.disabled = false; $("lbMsg").textContent = "Couldn't send. Check your connection and try again."; });
+  };
 }
 function showIntro(step) {
   if (step !== "rules") {
     showOv(`<div class="hero"><div class="mark">PING<span>EXPRESS</span></div><div class="tag">A rail chase across Europe</div></div>
       ${(() => { const sv = savedInfo(); return sv ? `<button class="big primary" id="bCont"><b>Continue match</b><small>${esc(sv)}</small></button>` : ""; })()}
       <div class="btnrow"><button class="big ${load("escape-tut") ? "" : "primary"}" id="bTut"><b>${load("escape-tut") ? "Tutorial" : "New here? Tutorial"}</b><small>A guided practice round, about 2 min</small></button>
-        <button class="big" id="bSet2"><b>Settings</b><small>Sound · ${DIFFS[SET.diff].name}</small></button></div>
+        <button class="big" id="bSet2"><b>Settings</b><small>Sound · ${DIFFS[SET.diff].name}</small></button>
+        <button class="big" id="bLB"><b>Leaderboard</b><small>Best matches per map</small></button></div>
       <h2>Players</h2>
       <div class="pcount"><button class="pc ${PLAY2 ? "" : "on"}" data-pc="1"><b>1 player</b><small>You vs 3 bots</small></button>
         <button class="pc ${PLAY2 ? "on" : ""}" data-pc="2"><b>2 players</b><small>One phone, pass it on · 2 bots</small></button></div>
       <div class="names" ${PLAY2 ? "" : "hidden"}><input id="n1" maxlength="12" value="${esc(NAMES[0])}" aria-label="Name player 1"><input id="n2" maxlength="12" value="${esc(NAMES[1])}" aria-label="Name player 2"></div>
       <h2>Choose a map</h2>
       <div class="btnrow" style="flex-direction:column">
-        ${Object.entries(MODES).map(([k, m]) => `<button class="big ${k === "ch" ? "primary" : ""}" data-mode="${k}"><b>${m.label}</b><small>${MAP.stations.filter(x => ((m.extra || []).includes(x.id) || ((!m.countries || m.countries.includes(x.c)) && (!x.o || x.o === k) && !(k === "eu" && x.x) && !(k === "ch" && x.id.startsWith("I_")))) && !(m.hide || []).includes(x.id)).length} stations · ${m.sub}</small></button>`).join("")}
+        ${Object.entries(MODES).map(([k, m]) => `<button class="big ${k === "ch" ? "primary" : ""}" data-mode="${k}"><b>${m.label}</b><small>${MAP.stations.filter(x => ((m.extra || []).includes(x.id) || ((!m.countries || m.countries.includes(x.c)) && (!x.o || x.o === (m.base || k)) && !((m.base || k) === "eu" && x.x) && !(k === "ch" && x.id.startsWith("I_")))) && !(m.hide || []).includes(x.id)).length} stations · ${m.sub}</small></button>`).join("")}
       </div>
       <p style="color:var(--mute);font-size:13px">Travel times are rounded typical values of the fastest regular service, not a live timetable.</p>
       <p class="copy">© 2026 Ping Express · All rights reserved${location.protocol.startsWith("http") && !/claude/.test(location.hostname) ? ` · <a href="privacy.html">Privacy</a>` : ""}</p>`);
     let two = PLAY2;
     $("bTut").onclick = startTutorial;
     $("bSet2").onclick = () => openSettings(() => showIntro());
+    $("bLB").onclick = () => showLeaderboard(null, () => showIntro());
     if ($("bCont")) $("bCont").onclick = () => { if (!resumeGame()) showIntro(); };
     $("sheet").querySelectorAll("[data-pc]").forEach(b => b.onclick = () => { two = b.dataset.pc === "2";
       $("sheet").querySelectorAll("[data-pc]").forEach(x => x.classList.toggle("on", x === b)); $("sheet").querySelector(".names").hidden = !two; });
